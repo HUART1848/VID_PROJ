@@ -1,8 +1,8 @@
 ---
 title: "VID - Project"
-author: "Hugo Huart"
+author: "Hugo Huart, FERCHICHI A. Farouk"
 date: "2023-05-10"
-output: pdf_document
+output: html_document
 ---
 
 # Introduction

@@ -49,6 +49,10 @@ Durant cette étape nous allons éliminer les colonnes contenant les attribut qu
 
 
 
+```{r}
+colnames(bands)
+
+```
 
 
 

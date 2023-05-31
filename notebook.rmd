@@ -7,35 +7,72 @@ output: html_document
 
 # Introduction
 
-```{r}
+```{r message=FALSE, warning=FALSE}
+library(DataExplorer)
+library(inspectdf)
 library(tidyverse)
 library(rpart)
-library(lattice)
 ```
+
+# Analyse exploratoire
 
 ## Chargement des données
 
 ```{r}
-bands<-read_csv2("data/bands3.csv", na = c("?"))
-bands
+bands<-read.csv2("data/bands3.csv", dec=".", header=T, na.strings="?")
+head(bands)
 ```
 
-Détermination du nombre de valeurs manquantes par attribut:
+## Analyse des valeurs manquantes
+
+Nombre de valeurs manquantes par attribut:
 
 ```{r}
 bands %>%
   summarize(across(everything(), ~sum(is.na(.))))
 ```
 
+Proportion des valeurs manquantes par colonne:
+
+```{r}
+colMeans(is.na(bands))
+```
+
+Visualisation de la répartition des valeurs manquantes (par type):
+
+```{r fig.align='center', fig.width=6, fig.height=6}
+plot_missing(
+  bands %>% select(where(is.numeric))
+, title="Proportion NA pour attributs numériques")
+```
+
+```{r fig.align='center', fig.width=6, fig.height=6}
+plot_missing(
+  bands %>% select(where(is.integer))
+, title="Proportions NA des attributs entiers")
+```
+
+```{r fig.align='center', fig.width=6, fig.height=6}
+plot_missing(
+  bands %>% select(where(is.character))
+, title="Proportions NA des attributs textuels")
+```
+
+## Préparation des données
+
+Visualisation de la répartition des types d'attributs:
+
+```{r fig.align='left', fig.width=6, fig.height=6}
+inspect_types(bands) %>% show_plot()
+```
+
 Remplacement des valeurs numériques manquantes par la médiane:
 
 ```{r}
-bands <- bands %>%
+bands<-bands %>%
   mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=T))))
 bands
 ```
-
-
 
 ```{r}
 bands %>%
@@ -43,13 +80,4 @@ bands %>%
 ```
 
 ## Sélection des colonnes
-
-
-
-
-
-
-
-
-
 

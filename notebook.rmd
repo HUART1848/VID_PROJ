@@ -66,18 +66,54 @@ Visualisation de la répartition des types d'attributs:
 inspect_types(bands) %>% show_plot()
 ```
 
-Remplacement des valeurs numériques manquantes par la médiane:
+Sur les 
+Séparation des attributs quantitatifs et qualitatifs:
+
+Sur les 40 attributs, ceux situés entre le 2ème et le 20ème inclus sont qualitatifs:
 
 ```{r}
-bands<-bands %>%
-  mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=T))))
-bands
+idx.quali<-c(2:20, 40)
+idx.quali
+```
+
+Les autres sont quantitatif:
+
+```{r}
+idx.quant<-((1:40)[-idx.quali])
+idx.quant
+```
+
+Création de sous-ensembles purement qualitatifs ou quantitatifs:
+
+```{r}
+bands.quali<-bands[, idx.quali] %>% mutate(across(where(is.integer), as.factor))
+bands.quali<-bands.quali %>% mutate(across(where(is.character), as.factor))
+head(bands.quali)
 ```
 
 ```{r}
-bands %>%
-  na.omit()
+bands.quant<-bands[, idx.quant]
+head(bands.quant)
 ```
+
+```{r}
+print(summary(bands.quali))
+print(summary(bands.quant))
+```
+
+Remplacement des valeurs numériques manquantes par la médiane de l'attribut:
+
+```{r}
+bands.quant %>% 
+  mutate(across(everything(), ~ coalesce(., median(., na.rm = TRUE))))
+```
+
+Correction des valeurs quantitatives:
+
+```{r}
+
+```
+
 
 ## Sélection des colonnes
 

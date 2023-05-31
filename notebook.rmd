@@ -45,7 +45,7 @@ bands %>%
 ## Sélection des colonnes
 
 
-
+Durant cette étape nous allons éliminer les colonnes contenant les attribut qu’on estime pas importants pour le traitement du problème
 
 
 

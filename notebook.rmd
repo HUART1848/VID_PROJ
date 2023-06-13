@@ -20,6 +20,7 @@ library(rpart)
 
 ```{r}
 bands<-read.csv2("data/bands3.csv", dec=".", header=T, na.strings="?")
+bands<-tibble(bands)
 head(bands)
 ```
 
@@ -101,11 +102,16 @@ print(summary(bands.quali))
 print(summary(bands.quant))
 ```
 
+```{r}
+
+```
+
+
 Remplacement des valeurs numériques manquantes par la médiane de l'attribut:
 
 ```{r}
-bands.quant %>% 
-  mutate(across(everything(), ~ coalesce(., median(., na.rm = TRUE))))
+bands.quant %>%
+  
 ```
 
 Correction des valeurs quantitatives:

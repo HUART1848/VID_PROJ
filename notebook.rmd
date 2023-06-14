@@ -1,27 +1,27 @@
 ---
-title: "VID - Project"
+title: "VID - Projet - Notebook"
 author: "Farouk Ferchichi & Hugo Huart"
-date: "2023-05-10"
+date: "`r Sys.Date()`"
 output: rmdformats::material
-# #  html_document:
-# #    theme: rmdformats::
-#     highlight: tango
-#     number_sections: true
 ---
 
 # Introduction
 
-_Note: Cliquer sur un graphique pour l'agrandir_
+_Note: Cliquez sur un graphique pour l'agrandir_
 
 ```{r message=FALSE, warning=FALSE}
+library(caret)
 library(DataExplorer)
 library(inspectdf)
 library(outliers)
 library(rpart)
+library(rpart.plot)
 library(tidyverse)
 ```
 
 # Analyse exploratoire
+
+_Note: Cliquez sur un graphique pour l'agrandir_
 
 ## Chargement des données
 
@@ -31,27 +31,29 @@ cylinders<-tibble(cylinders)
 head(cylinders)
 ```
 
-## Analyse des valeurs manquantes
+## Premier aperçu et analyse des valeurs manquantes
 
 Nombre de valeurs manquantes par attribut:
 
 ```{r}
 cylinders %>%
-  summarize(across(everything(), ~sum(is.na(.))))
+  summarize(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "NAs") %>%
+  arrange(desc(NAs))
 ```
 
 Proportion des valeurs manquantes par colonne:
 
 ```{r}
-colMeans(is.na(cylinders))
+colMeans(is.na(cylinders)) %>% sort(decreasing = T)
 ```
 
 Visualisation de la répartition des valeurs manquantes (par type):
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
 plot_missing(
-  cylinders %>% select(where(is.numeric))
-, title="Proportion NA pour attributs numériques")
+  cylinders %>% select(where(is.numeric)),
+  title="Proportion NA pour attributs numériques")
 ```
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
@@ -62,17 +64,17 @@ plot_missing(
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
 plot_missing(
-  cylinders %>% select(where(is.character))
-, title="Proportions NA des attributs textuels")
+  cylinders %>% select(where(is.character)),
+  title="Proportions NA des attributs textuels")
 ```
-
-## Préparation des données
 
 Visualisation de la répartition des types d'attributs:
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
 inspect_types(cylinders) %>% show_plot()
 ```
+
+## Préparation des données
 
 Séparation des attributs quantitatifs et qualitatifs:
 
@@ -132,6 +134,8 @@ cylinders.quant %>%
   theme_linedraw()
 ```
 
+### Nettoyage des données
+
 À l'aide de la librairie `outliers`,
 remplacement des valeurs quantitatives aberrantes:
 
@@ -154,11 +158,20 @@ cylinders.quali<-cylinders.quali %>%
   mutate(across(everything(), ~as.factor(toupper(as.character(.)))))
 ```
 
-Réunion des valeurs et affichage du résumé après traitement::
+Réunion des valeurs et affichage du résumé après traitement:
 
 ```{r}
 cylinders<-cbind(cylinders.quant, cylinders.quali)
 cylinders %>% summary
+```
+
+Certains attributs quantitatifs semblent avoir un grand nombre de classe:
+
+```{r}
+cylinders %>%
+  select(cylinder_no, customer, job_number) %>%
+  mutate(across(everything(), ~n_distinct(.))) %>%
+  first
 ```
 
 On affiche un nuage de points pour chaque attribut quantitatif,
@@ -197,9 +210,29 @@ cylinders %>%
 Cette date butoir correspond donc au 24 novembre 1991; au delà de cette date,
 tous les rouleaux sont défectueux.
 
+On peut visualiser cette répartition avec le graphique suivant:
+
+```{r}
+cylinders %>%
+  select(date, band_type) %>%
+  group_by(band_type) %>%
+  summarise(
+    count_before = sum(date <= as.Date("1991-11-24")),
+    count_after = sum(date > as.Date("1991-11-24"))
+  ) %>%
+  pivot_longer(cols = c(count_before, count_after), names_to = "condition", values_to = "count") %>%
+  mutate(condition = ifelse(condition == "count_before", "Before", "After"),
+         condition = factor(condition, levels = c("Before", "After"))) %>%
+  ggplot(aes(x = condition, y = count, fill = band_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Condition", y = "Count", fill = "Band Type") +
+  scale_fill_manual(values = c("gray", "black")) +
+  theme_linedraw()
+```
+
 # Sélection des attributs
 
-## Sélection des colonnes
+_Note: Cliquez sur un graphique pour l'agrandir_
 
 Avant d'entraîner un modèle, il est judicieux d'effectuer
 une sélection des attributs pertinents pour simplifier ce dernier dans la mesure
@@ -210,27 +243,80 @@ on peut identifier des attributs peu pertinents:
 
 ##### Attributs qualitatifs
 
-* `cylinder_division` et `ink_color`: Toujours les mêmes valeurs
-* `direct_steam` et `blade_mfg` : Très peu de diversité dans les valeurs
+* `cylinder_division` et `ink_color`: Toujours les mêmes valeurs.
+* `direct_steam` et `blade_mfg` : Très peu de diversité dans les valeurs.
+* `cylinder_no`, `customer` et `job_number` : Grand nombre de classes.
+* `location` : Grand nombre de valeurs manquantes.
 
 ##### Attributs quantitatifs
 
-* `chrome_content`, `current_density` et `ESA_amperage` : Très peu de variance
+* `chrome_content`, `current_density` et `ESA_amperage` : Très peu de variance.
 
 Ignorons ceux-ci pour la suite:
 
 ```{r}
 cylinders<-cylinders %>%
   select(-cylinder_division, -ink_color, -direct_steam, -blade_mfg,
-         -chrome_content, -current_density, -ESA_amperage)
-cylinders
+         -chrome_content, -current_density, -ESA_amperage,
+         -cylinder_no, -customer, -job_number,
+         -location)
 ```
+
+# Création et application du modèle
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+Division des données en ensembles d'entraînement et de test:
 
 ```{r}
-rpart(band_type~date+proof_cut+viscosity+solvent_type, cylinders, cp=0.0001) %>% plot
+set.seed(19)
+
+# 80% de données d'entraînement
+smp.size<-floor(0.8 * nrow(cylinders))
+idx.train<-sample(seq_len(nrow(cylinders)), size = smp.size)
+
+cylinders.train<-cylinders[idx.train, ]
+cylinders.test<-cylinders[-idx.train, ]
 ```
 
+## Classification
 
+Utilisation d'un arbre de classification pour le modèle:
 
+```{r}
+cylinders.ct<-rpart(band_type ~., data = cylinders.train, cp=0.001)
+cylinders.ct
+```
 
+Affichage de l'arbre de classification:
 
+```{r fig.align='center', fig.width=8, fig.height=12}
+plot(cylinders.ct, cex = 1)
+text(cylinders.ct, cex = 0.6)
+```
+
+Autre variante : 
+
+```{r fig.align='center', fig.width=7, fig.height=4}
+rpart.plot(cylinders.ct, main="")
+```
+
+Affichage d'informations sur l'arbre:
+
+```{r}
+printcp(cylinders.ct)
+```
+
+On constate que la date est le critère le plus significatif.
+
+# Test du modèle
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+Application de la classification sur les données de test, afin de vérifier
+l'efficacité du modèle:
+
+```{r}
+cylinders.pred<-predict(cylinders.ct, cylinders.test, type = "class")
+confusionMatrix(data = cylinders.pred, reference = cylinders.test$band_type)
+```

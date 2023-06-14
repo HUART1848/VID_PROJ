@@ -1,0 +1,322 @@
+---
+title: "VID - Projet - Rapport"
+author: "Farouk Ferchichi & Hugo Huart"
+date: "`r Sys.Date()`"
+output: rmdformats::material
+---
+
+# Introduction
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(caret)
+library(DataExplorer)
+library(inspectdf)
+library(outliers)
+library(rpart)
+library(rpart.plot)
+library(tidyverse)
+```
+
+Le but de ce projet est d'identifier des anomalies
+dans un processus d'impression, à l'aide de données à propos de ce dernier.
+
+Des traitement sont à effectuer sur ces données,à l'aide du logiciel **R**. 
+
+Ce rapport présente ces étapes.
+
+# Analyse exploratoire
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+```{r include=FALSE}
+cylinders<-read.csv2("data/bands3.csv", dec=".", header=T, na.strings="?")
+cylinders<-tibble(cylinders)
+head(cylinders)
+```
+
+## Premier aperçu et analyse des valeurs manquantes
+
+Tout d'abord nous avons jeter un premier coup d'oeil
+aux valeurs des différents attributs.
+
+Puis, nous avons commencé à appréhender les valeurs manquantes,
+principalement à l'aide des graphes suivants:
+
+```{r echo=FALSE, fig.align='center', fig.height=6, fig.width=6}
+plot_missing(
+  cylinders %>% select(where(is.numeric)),
+  title="Proportion NA pour attributs numériques")
+```
+
+```{r echo=FALSE, fig.align='center', fig.height=6, fig.width=6}
+plot_missing(
+  cylinders %>% select(where(is.integer)),
+  title="Proportions NA des attributs entiers")
+```
+
+```{r echo=FALSE, fig.align='center', fig.height=6, fig.width=6}
+plot_missing(
+  cylinders %>% select(where(is.character)),
+  title="Proportions NA des attributs textuels")
+```
+
+## Préparation des données
+
+```{r include=FALSE}
+idx.quali<-c(2:20, 40)
+idx.quali
+```
+
+
+```{r include=FALSE}
+idx.quant<-((1:40)[-idx.quali])
+idx.quant
+```
+
+
+```{r include=FALSE}
+cylinders<-cylinders %>%
+  mutate(across(date, ymd))
+```
+
+
+```{r include=FALSE}
+cylinders.quali<-cylinders[, idx.quali] %>% mutate(across(where(is.integer), as.factor))
+cylinders.quali<-cylinders.quali %>% mutate(across(where(is.character), as.factor))
+head(cylinders.quali)
+```
+
+```{r include=FALSE}
+cylinders.quant<-cylinders[, idx.quant]
+head(cylinders.quant)
+```
+
+
+```{r include=FALSE}
+print(summary(cylinders.quali))
+print(summary(cylinders.quant))
+```
+
+Pour la préparation des données nous avons tout d'abord visualisé les valeurs
+des différents attributs quantitatifs:
+
+```{r echo=FALSE, fig.align='center', fig.height=8, fig.width=8, warning=FALSE}
+cylinders.quant %>%
+  gather(key = "Attributs", value = "Valeurs") %>%
+  ggplot(aes(x = Attributs, y = Valeurs)) +
+  geom_boxplot(outlier.alpha = 0.4, outlier.size = 1) +
+  facet_wrap(~Attributs, scale="free", nrow = 5) +
+  theme_linedraw()
+```
+On a constaté que certains attributs (p.ex `current_density`) ont une très faible
+variance dans leur données.
+
+### Nettoyage des données
+
+Fort des informations du point précédent, nous avons traité les valeurs
+aberrantes par un remplacement par la médiane, puis traité
+les valeurs manquantes par un remplacement par la médiane également.
+
+De plus, certaines valeurs quantitatives étaient des doublons
+(p.ex "key" et "Key"), celles-ci on donc été traité également.
+D'autres attributs quantitatifs présentaient un grand nombre de classes
+(jusqu'à presque un par entrée).
+
+```{r include=FALSE}
+cylinders.quant<-cylinders.quant %>%
+  mutate(across(-date, ~rm.outlier(., fill=T, median=T)))
+```
+
+```{r include=FALSE}
+cylinders.quant<-cylinders.quant %>%
+  mutate(across(everything(), ~replace_na(., median(., na.rm=T))))
+```
+
+
+```{r include=FALSE}
+cylinders.quali<-cylinders.quali %>%
+  mutate(across(everything(), ~as.factor(toupper(as.character(.)))))
+```
+
+```{r include=FALSE}
+cylinders<-cbind(cylinders.quant, cylinders.quali)
+cylinders %>% summary
+```
+
+
+```{r include=FALSE}
+cylinders %>%
+  select(cylinder_no, customer, job_number) %>%
+  mutate(across(everything(), ~n_distinct(.))) %>%
+  first
+```
+
+On a ensuite visualisé un nuage de points pour chaque attribut quantitatif,
+avec une indication de la présence de _banding_, à l'aide du graphique suivant:
+
+```{r echo=FALSE, fig.align='center', fig.height=10, fig.width=10, warning=FALSE}
+cylinders %>%
+  select(date, where(is.numeric), band_type) %>%
+  pivot_longer(c(-date, -band_type), names_to = "variable", values_to  = "value") %>%
+  ggplot(aes(x = date, y = value, color = band_type)) +
+  geom_point(size = 0.7, alpha = 0.4) + 
+  facet_wrap(~variable, scale="free", ncol = 4) +
+  theme_linedraw()
+```
+
+À l'aide du graphique suivant, on a également un nuage de points simple
+des occurrences de _banding_:
+
+```{r echo=FALSE, fig.align='center', fig.height=4, fig.width=4, warning=FALSE}
+cylinders %>%
+  select(date, band_type) %>%
+  ggplot(aes(x = date, y = band_type)) +
+  geom_point(size = 0.7, alpha = 0.4) + 
+  theme_linedraw()
+```
+
+Avec ces deux graphiques, nous avons constaté que du _banding_ apparaît
+systématiquement à partir de 1992 environ. Cette date a ensuite été calculée
+plus précisément est correspond au 24 novembre 1991:
+
+```{r include=FALSE}
+cylinders %>%
+  select(date, band_type) %>%
+  group_by(band_type) %>%
+  summarise(first=min(date), last=max(date))
+```
+
+Avec le graphique suivant, nous avons visualiser la répartition des anomalies
+avant et après cette date butoir:
+
+```{r echo=FALSE}
+cylinders %>%
+  select(date, band_type) %>%
+  group_by(band_type) %>%
+  summarise(
+    count_before = sum(date <= as.Date("1991-11-24")),
+    count_after = sum(date > as.Date("1991-11-24"))
+  ) %>%
+  pivot_longer(cols = c(count_before, count_after), names_to = "condition", values_to = "count") %>%
+  mutate(condition = ifelse(condition == "count_before", "Before", "After"),
+         condition = factor(condition, levels = c("Before", "After"))) %>%
+  ggplot(aes(x = condition, y = count, fill = band_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Condition", y = "Count", fill = "Band Type") +
+  scale_fill_manual(values = c("gray", "black")) +
+  theme_linedraw()
+```
+
+# Sélection des attributs
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+Une fois ce traitement effectué, nous avons procédé à la sélection et la
+réduction du nombre d'attributs.
+
+Avant d'entraîner un modèle, il est judicieux d'effectuer une sélection des
+attributs pertinents pour simplifier ce dernier dans la mesure du possible.
+
+À l'aide des différents résultats et graphiques du point précédent, 
+nous avons pu des attributs peu pertinents:
+
+##### Attributs qualitatifs
+
+* `cylinder_division` et `ink_color`: Ces attributs présentent toujours les mêmes valeurs.
+* `direct_steam` et `blade_mfg` : Ces attributs comportent très peu de diversité dans les valeurs.
+* `cylinder_no`, `customer` et `job_number` : Ces attributs comportent un grand nombre de classes
+se rapprochant d'une valeur d'`id`, nous avons donc choisi de les ignorer pour
+ne pas corrompre la généralisation.
+* `location` : Cet attribut comportent un grand nombre de valeurs manquantes.
+
+##### Attributs quantitatifs
+
+* `chrome_content`, `current_density` et `ESA_amperage` : Ces attributs comportent très peu de variance.
+
+Cela correspond donc à enlever 11 attributs sur 40.
+
+```{r include=FALSE}
+cylinders<-cylinders %>%
+  select(-cylinder_division, -ink_color, -direct_steam, -blade_mfg,
+         -chrome_content, -current_density, -ESA_amperage,
+         -cylinder_no, -customer, -job_number,
+         -location)
+```
+
+# Création et application du modèle
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+Pour l'application du modèle avons divisé les données
+en ensembles d'entraînement et de test (20% pour le test).
+
+```{r include=FALSE}
+set.seed(19)
+
+# 80% de données d'entraînement
+smp.size<-floor(0.8 * nrow(cylinders))
+idx.train<-sample(seq_len(nrow(cylinders)), size = smp.size)
+
+cylinders.train<-cylinders[idx.train, ]
+cylinders.test<-cylinders[-idx.train, ]
+```
+
+## Classification
+
+Pour le modèle, nous avons fait le choix d'un arbre de classification, ce type
+de modèle se prêtant bien aux combinaisons d'attributs
+quantitatifs et qualitatifs comme c'est le cas ici.
+
+```{r include=FALSE}
+cylinders.ct<-rpart(band_type ~., data = cylinders.train, cp=0.001)
+cylinders.ct
+```
+
+Voici deux visualisation de l'arbre retenu:
+
+```{r echo=FALSE, fig.align='center', fig.height=12, fig.width=8}
+plot(cylinders.ct, cex = 1)
+text(cylinders.ct, cex = 0.6)
+```
+
+```{r echo=FALSE, fig.align='center', fig.height=4, fig.width=7}
+rpart.plot(cylinders.ct, main="")
+```
+
+Le modèle a été entraîné avec tous les attributs restants,
+ainsi qu'un paramètre `cp` de 0.001. On constate qu'il est déjà assez concis,
+nous avons donc estimé qu'il n'est pas nécessaire de l'élaguer davantage.
+
+Comme constaté lors de l'analyse exploratoire, la date est un attribut important
+en étant le plus significatif du modèle. Un mélange d'attributs qualitatifs et
+quantitatifs a été retenu.
+
+```{r include=FALSE}
+printcp(cylinders.ct)
+```
+
+# Test du modèle
+
+_Note: Cliquez sur un graphique pour l'agrandir_
+
+Enfin, nous avons procédé à l'application de la classification sur les
+données de test, afin de vérifier l'efficacité du modèle.
+
+Nous avons obtenu les résultats suivants:
+
+```{r echo=FALSE}
+cylinders.pred<-predict(cylinders.ct, cylinders.test, type = "class")
+confusionMatrix(data = cylinders.pred, reference = cylinders.test$band_type)
+```
+
+Nous avons considéré le résultat comme étant satisfaisant, avec une matrice de
+confusion relativement bonne et des valeurs d' _accuracy_ de _p-value_ plus que
+correctes.
+
+# Conclusion
+
+Nous considérons que les buts de ce projet ont été atteint, un résultat
+satisfaisant a été obtenu pour la détection des anomalies et les connaissances
+du logiciel **R** et de ses librairies tierces ont été encore approfondies.

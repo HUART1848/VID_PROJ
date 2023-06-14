@@ -2,16 +2,23 @@
 title: "VID - Project"
 author: "Farouk Ferchichi & Hugo Huart"
 date: "2023-05-10"
-output: html_document
+output: rmdformats::material
+# #  html_document:
+# #    theme: rmdformats::
+#     highlight: tango
+#     number_sections: true
 ---
 
 # Introduction
 
+_Note: Cliquer sur un graphique pour l'agrandir_
+
 ```{r message=FALSE, warning=FALSE}
 library(DataExplorer)
 library(inspectdf)
-library(tidyverse)
+library(outliers)
 library(rpart)
+library(tidyverse)
 ```
 
 # Analyse exploratoire
@@ -19,9 +26,9 @@ library(rpart)
 ## Chargement des données
 
 ```{r}
-bands<-read.csv2("data/bands3.csv", dec=".", header=T, na.strings="?")
-bands<-tibble(bands)
-head(bands)
+cylinders<-read.csv2("data/bands3.csv", dec=".", header=T, na.strings="?")
+cylinders<-tibble(cylinders)
+head(cylinders)
 ```
 
 ## Analyse des valeurs manquantes
@@ -29,33 +36,33 @@ head(bands)
 Nombre de valeurs manquantes par attribut:
 
 ```{r}
-bands %>%
+cylinders %>%
   summarize(across(everything(), ~sum(is.na(.))))
 ```
 
 Proportion des valeurs manquantes par colonne:
 
 ```{r}
-colMeans(is.na(bands))
+colMeans(is.na(cylinders))
 ```
 
 Visualisation de la répartition des valeurs manquantes (par type):
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
 plot_missing(
-  bands %>% select(where(is.numeric))
+  cylinders %>% select(where(is.numeric))
 , title="Proportion NA pour attributs numériques")
 ```
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
 plot_missing(
-  bands %>% select(where(is.integer))
+  cylinders %>% select(where(is.integer))
 , title="Proportions NA des attributs entiers")
 ```
 
 ```{r fig.align='center', fig.width=6, fig.height=6}
 plot_missing(
-  bands %>% select(where(is.character))
+  cylinders %>% select(where(is.character))
 , title="Proportions NA des attributs textuels")
 ```
 
@@ -63,11 +70,10 @@ plot_missing(
 
 Visualisation de la répartition des types d'attributs:
 
-```{r fig.align='left', fig.width=6, fig.height=6}
-inspect_types(bands) %>% show_plot()
+```{r fig.align='center', fig.width=6, fig.height=6}
+inspect_types(cylinders) %>% show_plot()
 ```
 
-Sur les 
 Séparation des attributs quantitatifs et qualitatifs:
 
 Sur les 40 attributs, ceux situés entre le 2ème et le 20ème inclus sont qualitatifs:
@@ -84,42 +90,147 @@ idx.quant<-((1:40)[-idx.quali])
 idx.quant
 ```
 
-Création de sous-ensembles purement qualitatifs ou quantitatifs:
+### Création de sous-ensembles purement qualitatifs ou quantitatifs
+
+Formatage de la date:
 
 ```{r}
-bands.quali<-bands[, idx.quali] %>% mutate(across(where(is.integer), as.factor))
-bands.quali<-bands.quali %>% mutate(across(where(is.character), as.factor))
-head(bands.quali)
+cylinders<-cylinders %>%
+  mutate(across(date, ymd))
 ```
+
+Création de l'ensemble qualitatif:
 
 ```{r}
-bands.quant<-bands[, idx.quant]
-head(bands.quant)
+cylinders.quali<-cylinders[, idx.quali] %>% mutate(across(where(is.integer), as.factor))
+cylinders.quali<-cylinders.quali %>% mutate(across(where(is.character), as.factor))
+head(cylinders.quali)
 ```
+
+Création de l'ensemble quantitatif:
 
 ```{r}
-print(summary(bands.quali))
-print(summary(bands.quant))
+cylinders.quant<-cylinders[, idx.quant]
+head(cylinders.quant)
 ```
+
+Affichage du résumé de ces sous-ensembles avant traitement:
 
 ```{r}
-
+print(summary(cylinders.quali))
+print(summary(cylinders.quant))
 ```
 
+Affichage de boîtes à moustaches pour chacun des attributs quantitatifs:
+
+```{r fig.align='center', fig.height=8, fig.width=8, warning=FALSE}
+cylinders.quant %>%
+  gather(key = "Attributs", value = "Valeurs") %>%
+  ggplot(aes(x = Attributs, y = Valeurs)) +
+  geom_boxplot(outlier.alpha = 0.4, outlier.size = 1) +
+  facet_wrap(~Attributs, scale="free", nrow = 5) +
+  theme_linedraw()
+```
+
+À l'aide de la librairie `outliers`,
+remplacement des valeurs quantitatives aberrantes:
+
+```{r}
+cylinders.quant<-cylinders.quant %>%
+  mutate(across(-date, ~rm.outlier(., fill=T, median=T)))
+```
 
 Remplacement des valeurs numériques manquantes par la médiane de l'attribut:
 
 ```{r}
-bands.quant %>%
-  
+cylinders.quant<-cylinders.quant %>%
+  mutate(across(everything(), ~replace_na(., median(., na.rm=T))))
 ```
 
-Correction des valeurs quantitatives:
+Correction des valeurs quantitatives (dupliquées par la case):
 
 ```{r}
+cylinders.quali<-cylinders.quali %>%
+  mutate(across(everything(), ~as.factor(toupper(as.character(.)))))
+```
 
+Réunion des valeurs et affichage du résumé après traitement::
+
+```{r}
+cylinders<-cbind(cylinders.quant, cylinders.quali)
+cylinders %>% summary
+```
+
+On affiche un nuage de points pour chaque attribut quantitatif,
+avec une indication de la présence de _banding_.
+
+```{r fig.align='center', fig.height=10, fig.width=10, warning=FALSE}
+cylinders %>%
+  select(date, where(is.numeric), band_type) %>%
+  pivot_longer(c(-date, -band_type), names_to = "variable", values_to  = "value") %>%
+  ggplot(aes(x = date, y = value, color = band_type)) +
+  geom_point(size = 0.7, alpha = 0.4) + 
+  facet_wrap(~variable, scale="free", ncol = 4) +
+  theme_linedraw()
+```
+
+On affiche également un nuage de points simple des occurrences de _banding_:
+
+```{r fig.align='center', fig.height=4, fig.width=4, warning=FALSE}
+cylinders %>%
+  select(date, band_type) %>%
+  ggplot(aes(x = date, y = band_type)) +
+  geom_point(size = 0.7, alpha = 0.4) + 
+  theme_linedraw()
+```
+
+Avec ces deux graphiques, on constate que du _banding_ apparaît systématiquement
+à partir de 1992 environ. On calcule cette date plus précisément:
+
+```{r}
+cylinders %>%
+  select(date, band_type) %>%
+  group_by(band_type) %>%
+  summarise(first=min(date), last=max(date))
+```
+
+Cette date butoir correspond donc au 24 novembre 1991; au delà de cette date,
+tous les rouleaux sont défectueux.
+
+# Sélection des attributs
+
+## Sélection des colonnes
+
+Avant d'entraîner un modèle, il est judicieux d'effectuer
+une sélection des attributs pertinents pour simplifier ce dernier dans la mesure
+du possible.
+
+À l'aide des différents résultats et graphiques du point précédent, 
+on peut identifier des attributs peu pertinents:
+
+##### Attributs qualitatifs
+
+* `cylinder_division` et `ink_color`: Toujours les mêmes valeurs
+* `direct_steam` et `blade_mfg` : Très peu de diversité dans les valeurs
+
+##### Attributs quantitatifs
+
+* `chrome_content`, `current_density` et `ESA_amperage` : Très peu de variance
+
+Ignorons ceux-ci pour la suite:
+
+```{r}
+cylinders<-cylinders %>%
+  select(-cylinder_division, -ink_color, -direct_steam, -blade_mfg,
+         -chrome_content, -current_density, -ESA_amperage)
+cylinders
+```
+
+```{r}
+rpart(band_type~date+proof_cut+viscosity+solvent_type, cylinders, cp=0.0001) %>% plot
 ```
 
 
-## Sélection des colonnes
+
+
 
